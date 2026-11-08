@@ -1,0 +1,56 @@
+{
+  "name": "nodebb-plugin-auth-marker",
+  "version": "0.0.0-development",
+  "description": "Sets an nbb_auth cookie (1 = logged in, 0 = guest) so a reverse proxy can cache guest pages and bypass the cache for logged-in users",
+  "main": "library.js",
+  "files": [
+    "library.js",
+    "plugin.json"
+  ],
+  "scripts": {
+    "prepare": "husky",
+    "test": "node --test test/"
+  },
+  "keywords": [
+    "nodebb",
+    "nodebb-plugin",
+    "nginx",
+    "varnish",
+    "reverse-proxy",
+    "cache",
+    "cookie"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/antipin/nodebb-plugin-auth-marker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/antipin/nodebb-plugin-auth-marker/issues"
+  },
+  "homepage": "https://github.com/antipin/nodebb-plugin-auth-marker#readme",
+  "author": "Alex Antipin",
+  "license": "MIT",
+  "nbbpm": {
+    "compatibility": "^4.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "release": {
+    "branches": [
+      "main"
+    ]
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "husky": "^9.1.7",
+    "semantic-release": "^25.0.9"
+  }
+}
