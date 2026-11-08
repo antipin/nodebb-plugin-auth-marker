@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "prepare": "husky",
+    "lint": "eslint --max-warnings 0 .",
     "test": "node --test",
     "test:integration": "node --test --test-concurrency=1 integration/marker.integration.js integration/proxy.integration.js",
     "test:pack": "node integration/pack.js",
@@ -58,6 +59,10 @@
   "devDependencies": {
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
+    "@eslint/js": "^10.0.1",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "eslint": "^10.14.0",
+    "eslint-config-nodebb": "^2.0.3",
     "husky": "^9.1.7",
     "semantic-release": "^25.0.9"
   },

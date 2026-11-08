@@ -16,6 +16,8 @@ const stubs = {
 const realCookieGet = stubs['./src/meta'].configs.cookie.get;
 
 // Under node --test, this file is require.main, so keep its own requires working.
+// The stub relies on node --test running each test file in its own process (the default).
+// With --test-isolation=none it would leak into other test files.
 const originalRequire = require.main.require.bind(require.main);
 require.main.require = id => (id in stubs ? stubs[id] : originalRequire(id));
 
