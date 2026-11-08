@@ -1,6 +1,7 @@
 # nodebb-plugin-auth-marker: design notes
 
-Status (2026-11-08): research done, draft code below, nothing built or tested yet.
+Status (2026-11-08): design agreed in review. The hook-based draft from the first research
+pass was dropped; see "Implementation" for why.
 
 ## Goal
 
@@ -70,80 +71,49 @@ too, and the proxy caches only known guests.
 
 - Cost: one uncached request per existing session.
 - A session expires or is revoked while the cookie says `1`: the proxy bypasses the cache
-  and NodeBB resets the cookie to `0`.
-- The login POST is never cached; `action:user.loggedIn` sets `1` right away.
+  and NodeBB resets the cookie to `0`. The next request (`nbb_auth=0`) is cacheable and
+  gets no `Set-Cookie`, so there is no bypass loop.
+- The marker can expire before `express.sid`, because it is only re-sent when its value
+  changes. The next request then has `express.sid` and no marker, so it bypasses the cache
+  and NodeBB sets the marker again: one uncached request per expiry, per browser. The
+  marker's `maxAge` is the session TTL, so this happens about as often as the session
+  itself would expire.
+- Login and logout responses carry the new value (see "Implementation"). Those routes are
+  never cached.
 - A forged cookie only skips the cache. Access is still decided by `express.sid`.
 - The cookie is `httpOnly`, since only the proxy reads it.
 - `Set-Cookie` is sent only when the value changes.
 
-## Draft code (untested)
+## Implementation
 
-`package.json`
+The marker is decided when the response headers are written, not when the request
+arrives:
 
-```json
-{
-  "name": "nodebb-plugin-auth-marker",
-  "version": "0.1.0",
-  "description": "Sets a cookie for logged-in users so a reverse proxy can bypass its guest cache",
-  "main": "library.js",
-  "nbbpm": { "compatibility": "^4.0.0" }
-}
-```
+- `static:app.preload({ app })` registers one `app.use()` middleware. It runs after
+  `Auth.setAuthVars` and before every route.
+- The middleware registers an [`on-headers`](https://www.npmjs.com/package/on-headers)
+  listener (the same mechanism `express-session` uses for its own cookie). When the
+  headers go out, it computes `want = (!!req.user && !req.isSpider()) ? '1' : '0'`. If
+  `req.cookies.nbb_auth !== want`, it adds one `nbb_auth` cookie to the existing
+  `Set-Cookie` header list (append, never replace, so `express.sid` is kept).
+- passport's `req.login()` / `req.logout()` change `req.user` during the request, so
+  whatever response the login or logout happens on (form `POST /login`, an SSO
+  `/auth/*/callback` redirect, `POST /api/v3/utilities/login`, logout) carries the right
+  value. This doesn't depend on `action:user.loggedIn` or `static:user.loggedOut` firing on
+  every login path, and there is at most one `nbb_auth` `Set-Cookie` per response.
+- Cookie options: `meta.configs.cookie.get()` (same domain, path, secure and SameSite as
+  `express.sid`), plus `httpOnly: true` and `maxAge: meta.getSessionTTLSeconds() * 1000`.
+- The listener never throws. Errors are caught and logged with winston, because an
+  exception inside `on-headers` would break the response.
 
-`plugin.json`
+Why the first draft (an `app.use()` check at request time, plus `action:user.loggedIn`
+and `static:user.loggedOut` hooks) was dropped:
 
-```json
-{
-  "id": "nodebb-plugin-auth-marker",
-  "library": "./library.js",
-  "hooks": [
-    { "hook": "static:app.preload",    "method": "preload" },
-    { "hook": "action:user.loggedIn",  "method": "onLogin" },
-    { "hook": "static:user.loggedOut", "method": "onLogout" }
-  ]
-}
-```
-
-`library.js`
-
-```js
-'use strict';
-
-const meta = require.main.require('./src/meta');
-
-const COOKIE = 'nbb_auth';
-const plugin = {};
-
-// Same domain / path / secure / SameSite=Lax as NodeBB's own express.sid
-function baseOptions() {
-	return { ...meta.configs.cookie.get(), httpOnly: true };
-}
-
-function setMarker(res, v) {
-	res.cookie(COOKIE, v, { ...baseOptions(), maxAge: meta.getSessionTTLSeconds() * 1000 });
-}
-
-const value = req => (req.loggedIn ? '1' : '0');
-
-// Keep the marker in sync with the session; Set-Cookie only when it changes
-plugin.preload = async ({ app }) => {
-	app.use((req, res, next) => {
-		const want = value(req);
-		if (req.cookies?.[COOKIE] !== want) {
-			setMarker(res, want);
-		}
-		next();
-	});
-};
-
-// On the login POST itself, the middleware above still saw a guest
-plugin.onLogin = ({ req }) => req?.res && setMarker(req.res, '1');
-
-// On the logout request, the middleware still saw a logged-in user
-plugin.onLogout = async ({ res }) => res && setMarker(res, '0');
-
-module.exports = plugin;
-```
+1. A wrong `nbb_auth=0` on a logged-in user is never corrected, because "`0` +
+   `express.sid`" is cached and the request never reaches NodeBB. Correctness would depend
+   on the login hook firing on every login path, including SSO plugins and API login.
+2. On a login POST from a visitor with no marker, the response would carry two
+   `nbb_auth` cookies (`0` from the middleware, then `1` from the hook).
 
 ## Proxy side (for the README)
 
@@ -166,7 +136,9 @@ proxy_cache_bypass $nbb_skip_cache;
 proxy_no_cache     $nbb_skip_cache;
 ```
 
-- Never cache `/api`, `/socket.io`, `/login`, `/register` or `/reset`.
+- Hard rule: never cache `/login`, `/register`, `/reset`, `/logout`, `/auth/*`, `/api/*`
+  or `/socket.io/*`. Logins happen on these routes, and their responses carry the new
+  marker value.
 - If `sessionKey` has been changed from the default, the regex must match the new name.
 - Varnish or Traefik: same rule, cache only when the table above says so.
 
@@ -180,16 +152,18 @@ proxy_no_cache     $nbb_skip_cache;
 
 ## Next steps
 
-1. Scaffold the repo with the files above, plus a README with the table and the proxy
-   configs.
-2. Write an integration test against a NodeBB 4.x container. It should check:
-   - a guest gets `0`
-   - login sets `1`
-   - logout sets `0`
-   - a session from before the plugin, without the marker, gets fixed
-   - a spider user agent gets `0`
-   - an unchanged state sends no `Set-Cookie`
-3. Install it into the forum.hiv.plus image as a local plugin (a separate PR there).
+Development happens in iterations, each on a local branch reviewed before it is merged:
+
+1. Tooling: commitlint, semantic-release, CI.
+2. Integration tests against a NodeBB 4.x container. These must fail against the skeleton
+   plugin first. They cover: guest gets `0`; form login sets `1` (exactly one `nbb_auth`
+   cookie, `express.sid` kept); API login sets `1`; logout sets `0`; a session from before
+   the plugin (no marker) gets `1`; a stale `1` without a valid session gets `0` and then
+   no further `Set-Cookie`; a spider user agent gets `0`; unchanged state sends no
+   `Set-Cookie`.
+3. The implementation above.
+4. README with the table and proxy configs.
+5. Install it into the forum.hiv.plus image as a local plugin (a separate PR there).
 
 ## Notes
 
