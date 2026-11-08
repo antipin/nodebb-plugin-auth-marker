@@ -60,5 +60,8 @@
     "@commitlint/config-conventional": "^21.2.4",
     "husky": "^9.1.7",
     "semantic-release": "^25.0.9"
+  },
+  "dependencies": {
+    "on-headers": "^1.1.0"
   }
 }

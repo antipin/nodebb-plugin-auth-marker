@@ -4,5 +4,10 @@
   "description": "Sets an nbb_auth cookie (1 = logged in, 0 = guest) for reverse-proxy caching",
   "url": "https://github.com/antipin/nodebb-plugin-auth-marker",
   "library": "./library.js",
-  "hooks": []
+  "hooks": [
+    {
+      "hook": "static:app.preload",
+      "method": "preload"
+    }
+  ]
 }
