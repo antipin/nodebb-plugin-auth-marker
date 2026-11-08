@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        nodebb: ['4.16.7']
+        nodebb: ['4.0.0', '4.16.7']
     env:
       NODEBB_VERSION: ${{ matrix.nodebb }}
     steps:
