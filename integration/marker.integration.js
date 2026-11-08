@@ -212,6 +212,19 @@ test('a session from before the plugin (express.sid, no marker) gets nbb_auth=1'
 	assertSingleMarker(await request('/', { jar: legacy }), '1');
 });
 
+test('a redirect response carries the marker (guest sent to /login)', async () => {
+	const res = await request('/notifications');
+	assert.equal(res.status, 302);
+	assertSingleMarker(res, '0');
+});
+
+test('a redirect response carries the marker (logged in, /me)', async () => {
+	const { jar } = await formLogin();
+	const res = await request('/me', { jar: jar.without(MARKER) });
+	assert.ok(res.status >= 300 && res.status < 400, `expected a redirect, got HTTP ${res.status}`);
+	assertSingleMarker(res, '1');
+});
+
 test('a stale nbb_auth=1 without a valid session is reset to 0, then left alone', async () => {
 	const jar = new Jar({ [MARKER]: '1' });
 	assertSingleMarker(await request('/', { jar }), '0');

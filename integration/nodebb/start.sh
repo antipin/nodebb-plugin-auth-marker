@@ -1,6 +1,6 @@
 #!/bin/bash
 # Boots a throwaway NodeBB with the packed plugin installed and activated.
-# Runs inside ghcr.io/nodebb/nodebb (see test/docker-compose.yml).
+# Runs inside ghcr.io/nodebb/nodebb (see integration/docker-compose.yml).
 set -euo pipefail
 cd /usr/src/app
 
@@ -32,12 +32,16 @@ node -e "
 const { MongoClient } = require('mongodb');
 (async () => {
 	const client = await MongoClient.connect('mongodb://mongo:27017');
-	await client.db('nodebb').collection('objects').updateOne(
+	const { matchedCount } = await client.db('nodebb').collection('objects').updateOne(
 		{ _key: 'config' },
 		{ \$set: { ipLoginAttempts: 100000 } },
 	);
 	await client.close();
-})();
+	if (matchedCount !== 1) {
+		console.error('start.sh: config object not found, could not raise ipLoginAttempts');
+		process.exit(1);
+	}
+})().catch((err) => { console.error(err); process.exit(1); });
 "
 
 ./nodebb activate nodebb-plugin-auth-marker --config="$CONFIG"
