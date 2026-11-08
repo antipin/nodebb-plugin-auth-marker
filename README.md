@@ -76,10 +76,16 @@ renders. So on the requests the proxy caches:
   default doesn't store responses that carry `Set-Cookie`, so the cache would never fill.
 - **Don't send the request's cookies to NodeBB.** The page is then rendered for an
   anonymous guest, the same for everyone.
-- **Ignore NodeBB's `Cache-Control: private, no-cache`.** NodeBB sends it on every page,
-  and both nginx and Varnish refuse to store such responses by default.
+- **Ignore NodeBB's `Cache-Control: private, no-cache`.** Recent NodeBB releases (4.16.7,
+  for example) send it on every page, and both nginx and Varnish refuse to store such
+  responses by default. (NodeBB 4.0.0 sends no `Cache-Control` on pages; the configs below
+  work with both.)
 
 Do this only on the cached path. Bypassed requests must keep both, or logins break.
+
+Some guest responses have no `Cache-Control` at all (`/robots.txt`, `/sitemap.xml`, RSS
+feeds). The configs below store those for `proxy_cache_valid` (nginx, 1 minute) or
+Varnish's `default_ttl` (120 seconds by default).
 
 ### nginx
 
@@ -195,7 +201,7 @@ sub vcl_backend_response {
     unset beresp.http.Set-Cookie;  # cached path only
     if (beresp.status == 200 || beresp.status == 301 || beresp.status == 302) {
         if (beresp.http.Cache-Control ~ "private|no-cache|no-store") {
-            # Pages: NodeBB sends "private, no-cache". Let Varnish store them for a
+            # Pages: recent NodeBB sends "private, no-cache". Let Varnish store them for a
             # minute, and keep browsers revalidating.
             set beresp.http.Cache-Control = "no-cache";
             set beresp.ttl = 1m;
@@ -263,6 +269,11 @@ npm run test:up             # MongoDB + NodeBB with the packed plugin, in Docker
 npm run test:integration    # the integration suite against http://localhost:4567
 npm run test:down
 ```
+
+`test:up` also starts nginx (port 8080) and Varnish (port 8081) in front of the forum,
+built from the configs in this README by `integration/proxy/extract.js`, plus copies of
+both in front of a header-echo server (8082, 8083). The integration suite checks the
+README configs as well as the plugin, so a change to either is tested.
 
 `NODEBB_VERSION=4.0.0 npm run test:up` picks another NodeBB image. `npm run test:logs`
 shows the forum's log.
