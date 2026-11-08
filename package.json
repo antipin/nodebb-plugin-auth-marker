@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "prepare": "husky",
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "keywords": [
     "nodebb",
@@ -32,6 +32,9 @@
   "license": "MIT",
   "nbbpm": {
     "compatibility": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "publishConfig": {
     "access": "public",
