@@ -1,0 +1,35 @@
+# Throwaway NodeBB + MongoDB for the integration tests:
+#   npm run test:up && npm run test:integration && npm run test:down
+name: auth-marker-test
+
+services:
+  mongo:
+    image: mongo:7
+    tmpfs:
+      - /data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  nodebb:
+    image: ghcr.io/nodebb/nodebb:${NODEBB_VERSION:-4.16.7}
+    entrypoint: ["tini", "--", "/plugin/start.sh"]
+    environment:
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: AuthMarker-Test-1
+    volumes:
+      - ./nodebb/start.sh:/plugin/start.sh:ro
+      - ../.test/plugin.tgz:/plugin/plugin.tgz:ro
+    ports:
+      - "4567:4567"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4567/api/config').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      start_period: 600s
+      retries: 3
+    depends_on:
+      mongo:
+        condition: service_healthy

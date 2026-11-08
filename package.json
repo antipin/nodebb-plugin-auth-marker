@@ -9,7 +9,12 @@
   ],
   "scripts": {
     "prepare": "husky",
-    "test": "node --test"
+    "test": "node --test",
+    "test:integration": "node --test --test-concurrency=1 integration/marker.integration.js",
+    "test:pack": "node integration/pack.js",
+    "test:up": "npm run test:pack && docker compose -f integration/docker-compose.yml up -d --wait",
+    "test:down": "docker compose -f integration/docker-compose.yml down -v",
+    "test:logs": "docker compose -f integration/docker-compose.yml logs nodebb"
   },
   "keywords": [
     "nodebb",
