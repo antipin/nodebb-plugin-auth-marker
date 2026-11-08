@@ -44,6 +44,10 @@ const { MongoClient } = require('mongodb');
 })().catch((err) => { console.error(err); process.exit(1); });
 "
 
+# A file in /uploads for the proxy tests (served at /assets/uploads/...)
+mkdir -p public/uploads/files
+echo "auth-marker upload probe" > public/uploads/files/probe.txt
+
 ./nodebb activate nodebb-plugin-auth-marker --config="$CONFIG"
 ./nodebb build --config="$CONFIG"
 exec node app.js --config="$CONFIG"

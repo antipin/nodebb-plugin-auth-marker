@@ -1,4 +1,5 @@
-# Throwaway NodeBB + MongoDB for the integration tests:
+# Throwaway NodeBB + MongoDB for the integration tests, with nginx and Varnish in front
+# built from the README configs (integration/proxy/extract.js):
 #   npm run test:up && npm run test:integration && npm run test:down
 name: auth-marker-test
 
@@ -33,3 +34,49 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+
+  echo:
+    image: node:24-alpine
+    command: ["node", "/echo.js"]
+    volumes:
+      - ./proxy/echo.js:/echo.js:ro
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ../.test/proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../.test/proxy/nodebb-proxy.conf:/etc/nginx/snippets/nodebb-proxy.conf:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      nodebb:
+        condition: service_healthy
+
+  varnish:
+    image: varnish:7.6
+    volumes:
+      - ../.test/proxy/default.vcl:/etc/varnish/default.vcl:ro
+    ports:
+      - "127.0.0.1:8081:80"
+    depends_on:
+      nodebb:
+        condition: service_healthy
+
+  nginx-echo:
+    image: nginx:1.27-alpine
+    volumes:
+      - ../.test/proxy/nginx-echo.conf:/etc/nginx/nginx.conf:ro
+      - ../.test/proxy/nodebb-proxy.conf:/etc/nginx/snippets/nodebb-proxy.conf:ro
+    ports:
+      - "127.0.0.1:8082:8080"
+    depends_on:
+      - echo
+
+  varnish-echo:
+    image: varnish:7.6
+    volumes:
+      - ../.test/proxy/echo.vcl:/etc/varnish/default.vcl:ro
+    ports:
+      - "127.0.0.1:8083:80"
+    depends_on:
+      - echo
