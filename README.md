@@ -21,6 +21,9 @@ npm install nodebb-plugin-auth-marker
 
 Or install and activate it from the ACP (Extend → Plugins). There is nothing to configure.
 
+Until the first release is on npm, install from a checkout instead:
+`npm install /path/to/nodebb-plugin-auth-marker`.
+
 ## What it does
 
 On every response, when the headers are written, the plugin works out the marker value:
@@ -113,17 +116,42 @@ map "$request_method:$nbb_guest:$nbb_cacheable_uri" $nbb_use_cache {
 }
 ```
 
+Both locations include the same proxy headers from one snippet. That's needed: nginx only
+inherits `proxy_set_header` from the outer level when a block defines none of its own, so the
+`proxy_set_header Cookie ""` below would otherwise drop `Host`, `X-Forwarded-For` and the
+rest on the cached path.
+
+```nginx
+# /etc/nginx/snippets/nodebb-proxy.conf
+proxy_http_version 1.1;
+proxy_set_header Host              $host;
+proxy_set_header X-Real-IP         $remote_addr;
+proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header Upgrade           $http_upgrade;
+proxy_set_header Connection        $connection_upgrade;
+```
+
+```nginx
+# http {} context, for the Connection header above
+map $http_upgrade $connection_upgrade {
+    default  upgrade;
+    ""       "";
+}
+```
+
 ```nginx
 # server {} context
 location / {
     error_page 418 = @nodebb_cached;
     if ($nbb_use_cache) { return 418; }
 
+    include snippets/nodebb-proxy.conf;
     proxy_pass http://nodebb;      # logged in, unknown, POSTs, never-cache routes
-    # ... your usual proxy_set_header lines, websocket upgrade, etc.
 }
 
 location @nodebb_cached {
+    include snippets/nodebb-proxy.conf;    # see above: not inherited here
     proxy_pass http://nodebb;
     proxy_set_header Cookie "";            # render for an anonymous guest
     proxy_ignore_headers Set-Cookie Cache-Control Expires;  # store it anyway
@@ -166,10 +194,13 @@ sub vcl_backend_response {
     }
     unset beresp.http.Set-Cookie;  # cached path only
     if (beresp.status == 200 || beresp.status == 301 || beresp.status == 302) {
-        # NodeBB sends "Cache-Control: private, no-cache"; keep browsers revalidating,
-        # but let Varnish store the page.
-        set beresp.http.Cache-Control = "no-cache";
-        set beresp.ttl = 1m;
+        if (beresp.http.Cache-Control ~ "private|no-cache|no-store") {
+            # Pages: NodeBB sends "private, no-cache". Let Varnish store them for a
+            # minute, and keep browsers revalidating.
+            set beresp.http.Cache-Control = "no-cache";
+            set beresp.ttl = 1m;
+        }
+        # Assets keep NodeBB's own public max-age, for browsers and for Varnish.
     } else {
         set beresp.ttl = 0s;
         set beresp.uncacheable = true;
@@ -178,20 +209,34 @@ sub vcl_backend_response {
 }
 ```
 
-### Traefik and others
+### Traefik
 
-The rule is the same for any proxy or CDN: cache only when the table above says so, and on
-that path drop the request cookies and the response `Set-Cookie`.
+Traefik (open source) has no HTTP cache, so it can't do this by itself. Put Varnish or
+nginx between Traefik and NodeBB (Traefik → cache → NodeBB) with one of the configs above,
+or use a CDN in front. Any other cache or CDN follows the same rule: cache only when the
+table above says so, and on that path drop the request cookies, the response `Set-Cookie`
+and NodeBB's `Cache-Control: private`.
 
 ## Before you turn the cache on
 
-This plugin only tells the proxy who is logged in. One more thing needs handling, and it's
-outside this plugin: **CSRF tokens in the HTML.** NodeBB puts a CSRF token in every page
-(`config.csrf_token`). On a cached page every guest gets the same token, and it doesn't
-match their own session, so a guest form POST made from a cached page fails the CSRF check.
-The login and register pages themselves are never cached (see the routes above), so their
-forms work. If guests can do anything else (post, vote, flag), test it, or keep those pages
-off the cache.
+This plugin only tells the proxy who is logged in. Two more things need handling, and both
+are outside this plugin:
+
+1. **Guest language.** By default NodeBB picks each guest's language from their
+   `Accept-Language` header ("Auto Detect Language Setting for Guests", on by default) and
+   sends no `Vary: Accept-Language`. The configs above don't key the cache on language, so
+   the first guest's language would be served to every guest until the entry expires.
+   Turn the setting off in ACP → Settings → General, under the language settings, so every
+   guest gets the default language. A `?lang=` link still works, because it is part of the
+   URL and therefore of the cache key. (Keying the cache on a normalized language would
+   also work, but it needs a map that mirrors NodeBB's language list. Keying on the raw
+   `Accept-Language` header would ruin the hit ratio. Neither is covered here.)
+2. **CSRF tokens in the HTML.** NodeBB puts a CSRF token in every page
+   (`config.csrf_token`). On a cached page every guest gets the same token, and it doesn't
+   match their own session, so a guest form POST made from a cached page fails the CSRF
+   check. The login and register pages themselves are never cached (see the routes above),
+   so their forms work. If guests can do anything else (post, vote, flag), test it, or keep
+   those pages off the cache.
 
 ## Costs
 
